@@ -22,6 +22,7 @@ Parameters:
       - line_item_unblended_cost
       - line_item_net_unblended_cost
     Default: line_item_unblended_cost
+    ConstraintDescription: Specifies which cost column to use for calculations. Choose 'line_item_unblended_cost' for the total cost before any discounts, or 'line_item_net_unblended_cost' for the cost after discounts but before taxes.
 
   AccountIds:
     Type: String
