@@ -18,6 +18,8 @@ def replace_query_parameters(query: str) -> str:
         .replace(
             "50 AS min_savings_per_month", "${MinimumSavings} AS min_savings_per_month"
         )
+        .replace("[CUR_DB]", "${AthenaCURDatabase}")
+        .replace("[CUR_TABLE]", "${AthenaCURTable}")
     )
 
 
