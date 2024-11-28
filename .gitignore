@@ -10,3 +10,6 @@ __pycache__/
 
 # Environments
 .venv
+
+
+table_class_optimizer/stack_template_output.yaml

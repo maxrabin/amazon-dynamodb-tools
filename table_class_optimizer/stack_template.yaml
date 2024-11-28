@@ -1,0 +1,291 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: DynamoDB Storage Optimization
+
+Parameters:
+  AthenaWorkgroup:
+    Type: String
+    Default: primary
+
+  AthenaCURDatabase:
+    Type: String
+
+  AthenaCURTable:
+    Type: String
+
+  OrganizationlUnitIds:
+    Type: CommaDelimitedList
+
+  CostColumn:
+    Type: String
+    AllowedValues:
+      - line_item_unblended_cost
+      - line_item_net_unblended_cost
+    Default: line_item_unblended_cost
+
+  AccountIds:
+    Type: String
+    Default: "'ALL'"
+    AllowedPattern: "^(('ALL')|('[0-9]{12}'(,'[0-9]{12}')*))$"
+    Description: Comma serparated list of single quote (') wrapped AWS Account IDs to scan.
+    ConstraintDescription: Must either be 'ALL' (with the single quotes) or comma separated list of 1 or more 12-digit AWS Account IDs wrapped in single quotes (eg. '111111111111','222222222222')
+
+  PayerIds:
+    Type: String
+    Default: "'ALL'"
+    AllowedPattern: "^(('ALL')|('[0-9]{12}'(,'[0-9]{12}')*))$"
+    Description: Comma serparated list of single quote (') wrapped "Payer" AWS Account IDs.
+    ConstraintDescription: Must either be 'ALL' (with the single quotes) or comma separated list of 1 or more 12-digit AWS Account IDs wrapped in single quotes (eg. '111111111111','222222222222')
+
+  TableNames:
+    Type: String
+    Default: "'ALL'"
+    AllowedPattern: "^(('ALL')|('[a-zA-Z0-9_\\-.]{3,255}'(,'[a-zA-Z0-9_\\-.]{3,255}')*))$"
+    Description: Comma serparated list of single quote (') wrapped DynamoDB Table names.
+    ConstraintDescription: Must either be 'ALL' (with the single quotes) or comma separated list of 1 or more DynamoDB Table names wrapped in single quotes (eg. 'Table1','my_other_table')
+
+  RegionNames:
+    Type: String
+    Default: "'ALL'"
+    AllowedPattern: "^(('ALL')|('[a-z]{2}-[a-z]+-[0-9]{1,2}'(,'[a-z]{2}-[a-z]+-[0-9]{1,2}')*))$"
+    Description: Comma serparated list of single quote (') wrapped AWS Regions to scan.
+    ConstraintDescription: Must either be 'ALL' (with the single quotes) or comma separated list of 1 or more AWS Region names wrapped in single quotes (eg. 'us-east-1','il-central-1')
+
+Resources:
+  StepFunctionPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      #Description:
+      #ManagedPolicyName: String
+      #Path: String
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - lambda:InvokeFunction
+              - sns:Publish
+            Resource:
+              - !GetAtt TableClassUpdaterFunction.Arn
+              - !Ref ReportTopic
+      Roles:
+        - !Ref StepFunctionRole
+
+  StepFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Description: Role for DynamoDB-StorageClass-Optimizer Step Function
+      ManagedPolicyArns: # TODO: lock it down
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonAthenaFullAccess
+
+      #Tags:
+      #  - Tag
+  EventBridgeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Description: Role for DynamoDB-StorageClass-Optimizer Event Bridge
+      Policies:
+        - PolicyName: InvokeStepFunction
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                Resource:
+                  - !Ref DynamoDBOptimizer
+
+      #Tags:
+      #  - Tag
+  EventBridgeRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Monthly Trigger of the Step Function that optimizes DynamoDB Table Storage Class
+      ScheduleExpression: cron(0 0 11 * ? *)
+      Name: DynamoDB-StorageClass-Optimizer
+
+      #RoleArn: !GetAtt EventBridgeRole.Arn
+      State: DISABLED #TODO: Enable
+      Targets:
+        - Arn: !Ref DynamoDBOptimizer
+          Id: DynamoDBOptimizer
+          RoleArn: !GetAtt EventBridgeRole.Arn
+
+  DynamoDBOptimizer:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      Definition:
+        StartAt: Get Named Query
+        States:
+          Get Named Query:
+            Type: Task
+            Resource: !Sub arn:${AWS::Partition}:states:::aws-sdk:athena:getNamedQuery
+            Next: Execute Query
+            Parameters:
+              NamedQueryId: !GetAtt AthenaNamedQuery.NamedQueryId
+          Execute Query:
+            Type: Task
+            Resource: !Sub arn:${AWS::Partition}:states:::athena:startQueryExecution.sync
+            Next: Perform Table Class Updates
+            Parameters:
+              QueryString.$: $.NamedQuery.QueryString
+              WorkGroup.$: $.NamedQuery.WorkGroup
+            ResultSelector:
+              QueryExecutionId.$: $.QueryExecution.QueryExecutionId
+              QueryOutputLocation.$: $.QueryExecution.ResultConfiguration.OutputLocation
+          Perform Table Class Updates:
+            Type: Task
+            Resource: !Sub arn:${AWS::Partition}:states:::lambda:invoke
+            OutputPath: $.Payload
+            Parameters:
+              Payload:
+                QueryExecutionId.$: $.QueryExecutionId
+                QueryOutputLocation.$: $.QueryOutputLocation
+                IsDryRun.$: $$.Execution.Input.DryRun
+              FunctionName: !GetAtt TableClassUpdaterFunction.Arn
+            Next: Publish Report
+          Publish Report:
+            Type: Task
+            Resource: !Sub arn:${AWS::Partition}:states:::sns:publish
+            Parameters:
+              Message.$: $
+              TopicArn: !Ref ReportTopic
+            End: true
+      RoleArn: !GetAtt StepFunctionRole.Arn
+      StateMachineName: DynamoDB-StorageClass-Optimizer
+      StateMachineType: STANDARD
+
+  AthenaNamedQuery:
+    Type: AWS::Athena::NamedQuery
+    Properties:
+      Database: !Ref AthenaCURDatabase
+      Description: DynamoDB Storage Class Optimizer
+      Name: DynamoDB-StorageClass-Optimizer
+      QueryString: !Sub
+        - |
+          {{ athena_query_string }}
+        - AccountIds: !Ref AccountIds
+      WorkGroup: !Ref AthenaWorkgroup
+
+      #Tags:
+      #  - TagsEntry
+  RoleStackSet:
+    DeletionPolicy: Retain
+    Type: AWS::CloudFormation::StackSet
+    Properties:
+      StackSetName: DynamoDBOptimizerChildAccount
+      Description: Resources for Child Accounts for the DynamoDB Table Class Optimizer
+      PermissionModel: SERVICE_MANAGED
+      AutoDeployment:
+        Enabled: True
+        RetainStacksOnAccountRemoval: False
+      StackInstancesGroup:
+        - Regions:
+            - us-east-1
+          DeploymentTargets:
+            OrganizationalUnitIds: !Ref OrganizationlUnitIds
+      Capabilities:
+        - CAPABILITY_NAMED_IAM
+      TemplateBody: !Sub |
+        AWSTemplateFormatVersion: '2010-09-09'
+        Resources:
+          LambdaRole:
+            Type: AWS::IAM::Role
+            Properties:
+              AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                - Effect: Allow
+                  Principal:
+                    AWS: "${LambdaRole.Arn}"
+                  Action: sts:AssumeRole
+              Description: Role for DynamoDB-StorageClass-Optimizer in child account
+              Policies:
+              - PolicyName: DynamoDBStorageClassOptimizer
+                PolicyDocument:
+                  Version: '2012-10-17'
+                  Statement:
+                  - Effect: Allow
+                    Action:
+                    - dynamodb:UpdateTable
+                    Resource:
+                    - Fn::Sub: arn:${!AWS::Partition}:dynamodb:*:${!AWS::AccountId}:table/*
+              RoleName: DynamoDBStorageClassOptimizer
+
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Description: Role for DynamoDB-StorageClass-Optimizer Lambda
+      ManagedPolicyArns: # TODO: lock it down
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonS3ReadOnlyAccess
+      Policies:
+        - PolicyName: AssumeRoleOnChildAccounts
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - athena:GetQueryResults
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::*:role/DynamoDBStorageClassOptimizer
+                  - !Sub arn:${AWS::Partition}:athena:${AWS::Region}:${AWS::AccountId}:workgroup/${AthenaWorkgroup}
+
+      #Tags:
+      #  - Tag
+  TableClassUpdaterFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Architectures:
+        - arm64
+      Code:
+        ZipFile: |
+          {{ lambda_handler_code }}
+      Description: Performs the DynamoDB Table Class Updates
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaRole.Arn
+      Runtime: python3.12
+      Timeout: 60
+
+  ReportTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      #ArchivePolicy: Json
+      #ContentBasedDeduplication: Boolean
+      #DataProtectionPolicy: Json
+      #DeliveryStatusLogging:
+      #  - LoggingConfig
+      #DisplayName: String
+      #FifoTopic: Boolean
+      #KmsMasterKeyId: String
+      #SignatureVersion: String
+      #Subscription:
+      #  - Subscription
+      #Tags:
+      #  - Tag
+      TopicName: DynamoDB-StorageClass-Optimizer-Reports
+
+      #TracingConfig: String
