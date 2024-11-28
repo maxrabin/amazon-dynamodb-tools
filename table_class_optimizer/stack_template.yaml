@@ -30,6 +30,13 @@ Parameters:
     Description: Comma serparated list of single quote (') wrapped AWS Account IDs to scan.
     ConstraintDescription: Must either be 'ALL' (with the single quotes) or comma separated list of 1 or more 12-digit AWS Account IDs wrapped in single quotes (eg. '111111111111','222222222222')
 
+  MinimumSavings:
+    Type: Number
+    Default: 50
+    MinValue: 0
+    MaxValue: 1000000
+    Description: Minimum monthly savings threshold in dollars.
+
   PayerIds:
     Type: String
     Default: "'ALL'"
@@ -50,6 +57,27 @@ Parameters:
     AllowedPattern: "^(('ALL')|('[a-z]{2}-[a-z]+-[0-9]{1,2}'(,'[a-z]{2}-[a-z]+-[0-9]{1,2}')*))$"
     Description: Comma serparated list of single quote (') wrapped AWS Regions to scan.
     ConstraintDescription: Must either be 'ALL' (with the single quotes) or comma separated list of 1 or more AWS Region names wrapped in single quotes (eg. 'us-east-1','il-central-1')
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Execution Configuration"
+        Parameters:
+          - AthenaWorkgroup
+          - AthenaCURDatabase
+          - AthenaCURTable
+          - OrganizationlUnitIds
+          - ParameterLabels
+      - Label:
+          default: "Query Configuration"
+        Parameters:
+          - CostColumn
+          - AccountIds
+          - MinimumSavings
+          - PayerIds
+          - TableNames
+          - RegionNames
 
 Resources:
   StepFunctionPolicy:

@@ -15,6 +15,9 @@ def replace_query_parameters(query: str) -> str:
         .replace(
             "ARRAY['ALL'] AS region_names", "ARRAY[${RegionNames}] AS region_names"
         )
+        .replace(
+            "50 AS min_savings_per_month", "${MinimumSavings} AS min_savings_per_month"
+        )
     )
 
 
