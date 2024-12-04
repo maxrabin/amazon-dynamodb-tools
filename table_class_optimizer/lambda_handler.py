@@ -1,5 +1,6 @@
 from collections import defaultdict
 from dataclasses import asdict, dataclass
+from inspect import signature
 from typing import Any, Generator
 
 import boto3
@@ -21,7 +22,11 @@ class QueryResultData:
     account_id: str
     table_name: str
     recommendation: str
-    update_result: str
+    update_result: str | None = None
+
+    @classmethod
+    def from_dict(cls, dct: dict[str, str]):
+        return cls(**{k: v for k, v in dct.items() if k in signature(cls).parameters})
 
     @property
     def as_account_and_region(self) -> AccountRegionPair:
@@ -58,7 +63,7 @@ def get_query_results(query_id: str) -> Generator[QueryResultData, None, None]:
             if not keys:
                 keys = values
             else:
-                yield QueryResultData(**dict(zip(keys, values)))
+                yield QueryResultData.from_dict(dict(zip(keys, values)))
 
 
 def main(query_id: str, is_dry_run: bool) -> Generator[QueryResultData, None, None]:
@@ -72,6 +77,15 @@ def main(query_id: str, is_dry_run: bool) -> Generator[QueryResultData, None, No
             account_id=key.account_id, region_name=key.region
         )
         for change in changes:
+            # The Athena query result returns recommendation "Candiate for Standard"
+            # or "Candidate for Standard_IA" but the API is expecting either "STANDARD"
+            # or "STANDARD_INFREQUENT_ACCESS" so we get the last word, uppercase it,
+            # and switch _IA to _INFREQUENT_ACCESS
+            change.recommendation = (
+                change.recommendation.split(" ")[-1]
+                .upper()
+                .replace("_IA", "_INFREQUENT_ACCESS")
+            )
             assert change.recommendation in ("STANDARD", "STANDARD_INFREQUENT_ACCESS")
             print(
                 f"Updating table {change.table_name} to storage class {change.recommendation}"
