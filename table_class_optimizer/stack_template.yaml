@@ -16,15 +16,15 @@ Parameters:
   OrganizationlUnitIds:
     Type: CommaDelimitedList
     AllowedPattern: "^(r-[0-9a-z]{4,32})|(ou-[0-9a-z]{4,32}-[a-z0-9]{8,32})$"
-    Description: "Either Root ID (r-...) or Organizational unit (OU) ID (ou-....-.........)"
+    ConstraintDescription: "Either Root ID (r-...) or Organizational unit (OU) ID (ou-....-.........)"
 
-  CostColumn:
+  PricingTerms:
     Type: String
     AllowedValues:
-      - line_item_unblended_cost
-      - line_item_net_unblended_cost
-    Default: line_item_unblended_cost
-    ConstraintDescription: Specifies which cost column to use for calculations. Choose 'line_item_unblended_cost' for the total cost before any discounts, or 'line_item_net_unblended_cost' for the cost after discounts but before taxes.
+      - NET
+      - GROSS
+    Default: NET
+    Description: Price you pay on your invoice (NET) or list price (GROSS). These are often the same.
 
   AccountIds:
     Type: String
@@ -86,9 +86,7 @@ Resources:
   StepFunctionPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      #Description:
-      #ManagedPolicyName: String
-      #Path: String
+      Description: Policy for DynamoDB Table Class Optimizer's Step Function
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
