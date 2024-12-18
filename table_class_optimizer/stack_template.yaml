@@ -2,6 +2,29 @@ AWSTemplateFormatVersion: "2010-09-09"
 
 Description: DynamoDB Storage Optimization
 
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Execution Configuration
+        Parameters:
+          - AthenaWorkgroup
+          - AthenaCURDatabase
+          - AthenaCURTable
+          - OrganizationlUnitIds
+          - CronDayOfMonth
+          - CronHour
+          - CronMinute
+      - Label:
+          default: Query Configuration
+        Parameters:
+          - CostColumn
+          - AccountIds
+          - MinimumSavings
+          - PayerIds
+          - TableNames
+          - RegionNames
+
 Parameters:
   AthenaWorkgroup:
     Type: String
@@ -17,18 +40,17 @@ Parameters:
 
   OrganizationlUnitIds:
     Type: CommaDelimitedList
-    AllowedPattern: "^(r-[0-9a-z]{4,32})|(ou-[0-9a-z]{4,32}-[a-z0-9]{8,32})$"
-    ConstraintDescription: "Either Root ID (r-...) or Organizational unit (OU) ID (ou-....-.........)"
+    AllowedPattern: ^(r-[0-9a-z]{4,32})|(ou-[0-9a-z]{4,32}-[a-z0-9]{8,32})$
+    ConstraintDescription: Either Root ID (r-...) or Organizational unit (OU) ID (ou-....-.........)
 
   CronDayOfMonth:
     Type: String
     Default: "10"
     AllowedPattern: ^(L|LW|(1?[1-9]|[12][0-9]|3[01])W?)$
-    ConstraintDescription: "Single day of month (1-31: days of month such as 31 that don't occur in a given month such as February, won't run that month). Check EventBridge Cron documentation"
+    ConstraintDescription: 'Single day of month (1-31: days of month such as 31 that don''t occur in a given month such as February, won''t run that month). Check EventBridge Cron documentation'
 
   CronHour:
     Type: Number
-    Default: "0"
     AllowedValues:
       - 0
       - 1
@@ -54,10 +76,10 @@ Parameters:
       - 21
       - 22
       - 23
+    Default: "0"
 
   CronMinute:
     Type: Number
-    Default: 0
     AllowedValues:
       - 0
       - 5
@@ -71,72 +93,50 @@ Parameters:
       - 45
       - 50
       - 55
+    Default: 0
 
   PricingTerms:
+    Description: Price you pay on your invoice (NET) or list price (GROSS). These are often the same.
     Type: String
     AllowedValues:
       - NET
       - GROSS
     Default: NET
-    Description: Price you pay on your invoice (NET) or list price (GROSS). These are often the same.
 
   AccountIds:
-    Type: String
-    Default: "'ALL'"
-    AllowedPattern: "^(('ALL')|('[0-9]{12}'(,'[0-9]{12}')*))$"
     Description: Comma serparated list of single quote (') wrapped AWS Account IDs to scan.
+    Type: String
+    Default: '''ALL'''
+    AllowedPattern: ^(('ALL')|('[0-9]{12}'(,'[0-9]{12}')*))$
     ConstraintDescription: Must either be 'ALL' (with the single quotes) or comma separated list of 1 or more 12-digit AWS Account IDs wrapped in single quotes (eg. '111111111111','222222222222')
 
   MinimumSavings:
+    Description: Minimum monthly savings threshold in dollars.
     Type: Number
     Default: 50
     MinValue: 0
     MaxValue: 1000000
-    Description: Minimum monthly savings threshold in dollars.
 
   PayerIds:
-    Type: String
-    Default: "'ALL'"
-    AllowedPattern: "^(('ALL')|('[0-9]{12}'(,'[0-9]{12}')*))$"
     Description: Comma serparated list of single quote (') wrapped "Payer" AWS Account IDs.
+    Type: String
+    Default: '''ALL'''
+    AllowedPattern: ^(('ALL')|('[0-9]{12}'(,'[0-9]{12}')*))$
     ConstraintDescription: Must either be 'ALL' (with the single quotes) or comma separated list of 1 or more 12-digit AWS Account IDs wrapped in single quotes (eg. '111111111111','222222222222')
 
   TableNames:
-    Type: String
-    Default: "'ALL'"
-    AllowedPattern: "^(('ALL')|('[a-zA-Z0-9_\\-.]{3,255}'(,'[a-zA-Z0-9_\\-.]{3,255}')*))$"
     Description: Comma serparated list of single quote (') wrapped DynamoDB Table names.
+    Type: String
+    Default: '''ALL'''
+    AllowedPattern: ^(('ALL')|('[a-zA-Z0-9_\-.]{3,255}'(,'[a-zA-Z0-9_\-.]{3,255}')*))$
     ConstraintDescription: Must either be 'ALL' (with the single quotes) or comma separated list of 1 or more DynamoDB Table names wrapped in single quotes (eg. 'Table1','my_other_table')
 
   RegionNames:
-    Type: String
-    Default: "'ALL'"
-    AllowedPattern: "^(('ALL')|('[a-z]{2}-[a-z]+-[0-9]{1,2}'(,'[a-z]{2}-[a-z]+-[0-9]{1,2}')*))$"
     Description: Comma serparated list of single quote (') wrapped AWS Regions to scan.
+    Type: String
+    Default: '''ALL'''
+    AllowedPattern: ^(('ALL')|('[a-z]{2}-[a-z]+-[0-9]{1,2}'(,'[a-z]{2}-[a-z]+-[0-9]{1,2}')*))$
     ConstraintDescription: Must either be 'ALL' (with the single quotes) or comma separated list of 1 or more AWS Region names wrapped in single quotes (eg. 'us-east-1','il-central-1')
-
-Metadata:
-  AWS::CloudFormation::Interface:
-    ParameterGroups:
-      - Label:
-          default: "Execution Configuration"
-        Parameters:
-          - AthenaWorkgroup
-          - AthenaCURDatabase
-          - AthenaCURTable
-          - OrganizationlUnitIds
-          - CronDayOfMonth
-          - CronHour
-          - CronMinute
-      - Label:
-          default: "Query Configuration"
-        Parameters:
-          - CostColumn
-          - AccountIds
-          - MinimumSavings
-          - PayerIds
-          - TableNames
-          - RegionNames
 
 Resources:
   StepFunctionPolicy:
