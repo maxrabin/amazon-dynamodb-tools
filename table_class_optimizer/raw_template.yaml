@@ -47,7 +47,7 @@ Parameters:
     Type: String
     Default: "10"
     AllowedPattern: ^(L|LW|(1?[1-9]|[12][0-9]|3[01])W?)$
-    ConstraintDescription: "Single day of month (1-31: days of month such as 31 that don't occur in a given month such as February, won't run that month). Check EventBridge Cron documentation"
+    ConstraintDescription: 'Single day of month (1-31: days of month such as 31 that don''t occur in a given month such as February, won''t run that month). Check EventBridge Cron documentation'
 
   CronHour:
     Type: Number
@@ -106,7 +106,7 @@ Parameters:
   AccountIds:
     Description: Comma serparated list of single quote (') wrapped AWS Account IDs to scan.
     Type: String
-    Default: "'ALL'"
+    Default: '''ALL'''
     AllowedPattern: ^(('ALL')|('[0-9]{12}'(,'[0-9]{12}')*))$
     ConstraintDescription: Must either be 'ALL' (with the single quotes) or comma separated list of 1 or more 12-digit AWS Account IDs wrapped in single quotes (eg. '111111111111','222222222222')
 
@@ -120,21 +120,21 @@ Parameters:
   PayerIds:
     Description: Comma serparated list of single quote (') wrapped "Payer" AWS Account IDs.
     Type: String
-    Default: "'ALL'"
+    Default: '''ALL'''
     AllowedPattern: ^(('ALL')|('[0-9]{12}'(,'[0-9]{12}')*))$
     ConstraintDescription: Must either be 'ALL' (with the single quotes) or comma separated list of 1 or more 12-digit AWS Account IDs wrapped in single quotes (eg. '111111111111','222222222222')
 
   TableNames:
     Description: Comma serparated list of single quote (') wrapped DynamoDB Table names.
     Type: String
-    Default: "'ALL'"
+    Default: '''ALL'''
     AllowedPattern: ^(('ALL')|('[a-zA-Z0-9_\-.]{3,255}'(,'[a-zA-Z0-9_\-.]{3,255}')*))$
     ConstraintDescription: Must either be 'ALL' (with the single quotes) or comma separated list of 1 or more DynamoDB Table names wrapped in single quotes (eg. 'Table1','my_other_table')
 
   RegionNames:
     Description: Comma serparated list of single quote (') wrapped AWS Regions to scan.
     Type: String
-    Default: "'ALL'"
+    Default: '''ALL'''
     AllowedPattern: ^(('ALL')|('[a-z]{2}-[a-z]+-[0-9]{1,2}'(,'[a-z]{2}-[a-z]+-[0-9]{1,2}')*))$
     ConstraintDescription: Must either be 'ALL' (with the single quotes) or comma separated list of 1 or more AWS Region names wrapped in single quotes (eg. 'us-east-1','il-central-1')
 
@@ -209,41 +209,42 @@ Resources:
     Type: AWS::StepFunctions::StateMachine
     Properties:
       Definition:
+        QueryLanguage: JSONata
         StartAt: Get Named Query
         States:
           Get Named Query:
             Type: Task
             Resource: !Sub arn:${AWS::Partition}:states:::aws-sdk:athena:getNamedQuery
             Next: Execute Query
-            Parameters:
+            Arguments:
               NamedQueryId: !GetAtt AthenaNamedQuery.NamedQueryId
           Execute Query:
             Type: Task
             Resource: !Sub arn:${AWS::Partition}:states:::athena:startQueryExecution.sync
             Next: Perform Table Class Updates
-            Parameters:
-              QueryString.$: $.NamedQuery.QueryString
-              WorkGroup.$: $.NamedQuery.WorkGroup
-            ResultSelector:
-              QueryExecutionId.$: $.QueryExecution.QueryExecutionId
-              QueryOutputLocation.$: $.QueryExecution.ResultConfiguration.OutputLocation
+            Arguments:
+              QueryString: '{% $states.input.NamedQuery.QueryString %}'
+              WorkGroup: '{% $states.input.NamedQuery.WorkGroup %}'
+            Output:
+              QueryExecutionId: '{% $states.result.QueryExecution.QueryExecutionId %}'
+              QueryOutputLocation: '{% $states.result.QueryExecution.ResultConfiguration.OutputLocation %}'
           Perform Table Class Updates:
             Type: Task
             Resource: !Sub arn:${AWS::Partition}:states:::lambda:invoke
-            OutputPath: $.Payload
-            Parameters:
-              Payload:
-                QueryExecutionId.$: $.QueryExecutionId
-                QueryOutputLocation.$: $.QueryOutputLocation
-                IsDryRun.$: $$.Execution.Input.DryRun
+            Output: '{% $states.result.Payload %}'
+            Arguments:
               FunctionName: !GetAtt TableClassUpdaterFunction.Arn
+              Payload:
+                IsDryRun: '{% $states.context.Execution.Input.IsDryRun ? true : false  %}'
+                QueryExecutionId: '{% $states.input.QueryExecutionId  %}'
+                QueryOutputLocation: '{% $states.input.QueryOutputLocation  %}'
             Next: Publish Report
           Publish Report:
             Type: Task
             Resource: !Sub arn:${AWS::Partition}:states:::sns:publish
-            Parameters:
-              Message.$: $
+            Arguments:
               TopicArn: !Ref ReportTopic
+              Message: '{% $states.input %}'
             End: true
       RoleArn: !GetAtt StepFunctionRole.Arn
       StateMachineName: DynamoDB-StorageClass-Optimizer
