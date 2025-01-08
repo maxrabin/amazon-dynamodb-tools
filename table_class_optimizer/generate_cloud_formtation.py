@@ -27,8 +27,8 @@ def replace_query_parameters(query: str) -> str:
 def main():
     with open("./DDB_TableClassReco.sql", "r") as sql, open(
         "./lambda_handler.py", "r"
-    ) as lambda_handler, open("./stack_template.yaml", "r") as stack_template, open(
-        "./stack_template_output.yaml", "w"
+    ) as lambda_handler, open("./raw_template.yaml", "r") as stack_template, open(
+        "./template.yaml", "w"
     ) as output:
         result: str = (
             stack_template.read()
