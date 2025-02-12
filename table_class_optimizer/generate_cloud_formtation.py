@@ -1,27 +1,25 @@
 from textwrap import indent
 
-
-def my_indenter(num: int, text: str) -> str:
-    return indent(text, " " * num)[num:]
+REPLACEMENTS = {
+    ("ARRAY['ALL'] AS account_ids", "ARRAY[${AccountIds}] AS account_ids"),
+    ("ARRAY['ALL'] AS payer_ids", "ARRAY[${PayerIds}] AS payer_ids"),
+    ("ARRAY['ALL'] AS table_names", "ARRAY[${TableNames}] AS table_names"),
+    ("ARRAY['ALL'] AS region_names", "ARRAY[${RegionNames}] AS region_names"),
+    ("50 AS min_savings_per_month", "${MinimumSavings} AS min_savings_per_month"),
+    ("'NET' AS cost_type", "'${PricingTerms}' AS cost_type"),
+    ("[CUR_DB]", "${AthenaCURDatabase}"),
+    ("[CUR_TABLE]", "${AthenaCURTable}"),
+}
 
 
 def replace_query_parameters(query: str) -> str:
-    return (
-        query.replace(
-            "ARRAY['ALL'] AS account_ids", "ARRAY[${AccountIds}] AS account_ids"
-        )
-        .replace("ARRAY['ALL'] AS payer_ids", "ARRAY[${PayerIds}] AS payer_ids")
-        .replace("ARRAY['ALL'] AS table_names", "ARRAY[${TableNames}] AS table_names")
-        .replace(
-            "ARRAY['ALL'] AS region_names", "ARRAY[${RegionNames}] AS region_names"
-        )
-        .replace(
-            "50 AS min_savings_per_month", "${MinimumSavings} AS min_savings_per_month"
-        )
-        .replace("'NET' AS cost_type", "'${PricingTerms}' AS cost_type")
-        .replace("[CUR_DB]", "${AthenaCURDatabase}")
-        .replace("[CUR_TABLE]", "${AthenaCURTable}")
-    )
+    for replacement in REPLACEMENTS:
+        query = query.replace(replacement[0], replacement[1])
+    return query
+
+
+def my_indenter(num: int, text: str) -> str:
+    return indent(text, " " * num)[num:]
 
 
 def main():
