@@ -242,7 +242,7 @@ Resources:
           Were Updates Made:
             Type: Choice
             Choices:
-              - Condition: "{%  $reduce($states.input, function($acc, $v) { $acc or $v.updated }, false)  %}"
+              - Condition: "{%  $reduce($states.input, function($acc, $v) { $acc or $v.updated }, false) or $states.context.Execution.Input.IsDryRun  %}"
                 Next: Publish Report
             Default: Success
           Publish Report:
@@ -250,7 +250,7 @@ Resources:
             Resource: !Sub arn:${AWS::Partition}:states:::sns:publish
             Arguments:
               TopicArn: !Ref ReportTopic
-              Subject: '{% ($states.context.Execution.Input.IsDryRun ? "[Dry Run]" : "[Action Required]") & "DynamoDB Table Class Optimizer Execution Report" %}'
+              Subject: '{% ($states.context.Execution.Input.IsDryRun ? "[Dry Run]" : "[Action Required]") & " DynamoDB Table Class Optimizer Execution Report" %}'
               Message: '{%
                 $join(
                  $append(
