@@ -1,7 +1,7 @@
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
-from inspect import signature
-from typing import Any, Generator
+from typing import Generator
 
 import boto3
 from botocore.exceptions import ClientError
@@ -23,10 +23,16 @@ class QueryResultData:
     table_name: str
     recommendation: str
     update_result: str | None = None
+    updated: bool = False
 
     @classmethod
     def from_dict(cls, dct: dict[str, str]):
-        return cls(**{k: v for k, v in dct.items() if k in signature(cls).parameters})
+        return cls(
+            region=dct["region"],
+            account_id=dct["account_id"],
+            table_name=dct["table_name"],
+            recommendation=dct["recommendation"],
+        )
 
     @property
     def as_account_and_region(self) -> AccountRegionPair:
@@ -66,6 +72,53 @@ def get_query_results(query_id: str) -> Generator[QueryResultData, None, None]:
                 yield QueryResultData.from_dict(dict(zip(keys, values)))
 
 
+def update_tables_in_account(key, changes, is_dry_run: bool):
+    dynamodb_client = get_dynamodb_client(
+        account_id=key.account_id, region_name=key.region
+    )
+    for change in changes:
+        # The Athena query result returns recommendation "Candiate for Standard"
+        # or "Candidate for Standard_IA" but the API is expecting either "STANDARD"
+        # or "STANDARD_INFREQUENT_ACCESS" so we get the last word, uppercase it,
+        # and switch _IA to _INFREQUENT_ACCESS
+        change.recommendation = (
+            change.recommendation.split(" ")[-1]
+            .upper()
+            .replace("_IA", "_INFREQUENT_ACCESS")
+        )
+        assert change.recommendation in ("STANDARD", "STANDARD_INFREQUENT_ACCESS")
+        print(
+            f"Updating table {change.table_name} to storage class {change.recommendation}"
+        )
+        try:
+            current_class = dynamodb_client.describe_table(TableName=change.table_name)
+            if (
+                "TableClassSummary" in current_class["Table"]
+                and "TableClass" in current_class["Table"]["TableClassSummary"]
+                and current_class["Table"]["TableClassSummary"]["TableClass"]
+                == change.recommendation
+            ):
+                change.update_result = (
+                    "Table Class already optimized. Not performing any change."
+                )
+            elif is_dry_run:
+                change.update_result = "Dry Run - Did not update"
+            else:
+                update_result = dynamodb_client.update_table(
+                    TableName=change.table_name,
+                    TableClass=change.recommendation,
+                )
+                change.updated = True
+                assert "TableDescription" in update_result
+                assert "TableStatus" in update_result["TableDescription"]
+                change.update_result = update_result["TableDescription"]["TableStatus"]
+        except ClientError as error:
+            assert "Error" in error.response
+            assert "Message" in error.response["Error"]
+            change.update_result = error.response["Error"]["Message"]
+        yield change
+
+
 def main(query_id: str, is_dry_run: bool) -> Generator[QueryResultData, None, None]:
     tables_per_account_and_region: defaultdict[
         AccountRegionPair, list[QueryResultData]
@@ -73,43 +126,10 @@ def main(query_id: str, is_dry_run: bool) -> Generator[QueryResultData, None, No
     for result in get_query_results(query_id):
         tables_per_account_and_region[result.as_account_and_region].append(result)
     for key, changes in tables_per_account_and_region.items():
-        dynamodb_client = get_dynamodb_client(
-            account_id=key.account_id, region_name=key.region
-        )
-        for change in changes:
-            # The Athena query result returns recommendation "Candiate for Standard"
-            # or "Candidate for Standard_IA" but the API is expecting either "STANDARD"
-            # or "STANDARD_INFREQUENT_ACCESS" so we get the last word, uppercase it,
-            # and switch _IA to _INFREQUENT_ACCESS
-            change.recommendation = (
-                change.recommendation.split(" ")[-1]
-                .upper()
-                .replace("_IA", "_INFREQUENT_ACCESS")
-            )
-            assert change.recommendation in ("STANDARD", "STANDARD_INFREQUENT_ACCESS")
-            print(
-                f"Updating table {change.table_name} to storage class {change.recommendation}"
-            )
-            if is_dry_run:
-                change.update_result = "Dry Run - Did not update"
-            else:
-                try:
-                    update_result = dynamodb_client.update_table(
-                        TableName=change.table_name, TableClass=change.recommendation
-                    )
-                    assert "TableDescription" in update_result
-                    assert "TableStatus" in update_result["TableDescription"]
-                    change.update_result = update_result["TableDescription"][
-                        "TableStatus"
-                    ]
-                except ClientError as error:
-                    assert "Error" in error.response
-                    assert "Message" in error.response["Error"]
-                    change.update_result = error.response["Error"]["Message"]
-            yield change
+        yield from update_tables_in_account(key, changes, is_dry_run)
 
 
-def lambda_handler(event: dict[str, Any], _) -> list[dict]:
+def lambda_handler(event: dict, _) -> list[dict]:
     assert isinstance((query_id := event.get("QueryExecutionId")), str)
     is_dry_run: bool = (
         passed_value
@@ -118,5 +138,5 @@ def lambda_handler(event: dict[str, Any], _) -> list[dict]:
         and isinstance(passed_value, bool)
         else False
     )
-    result_data: Generator[QueryResultData, None, None] = main(query_id, is_dry_run)
+    result_data: Iterable[QueryResultData] = main(query_id, is_dry_run)
     return [asdict(result) for result in result_data]
