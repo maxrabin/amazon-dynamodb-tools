@@ -15,6 +15,7 @@ Metadata:
           - CronDayOfMonth
           - CronHour
           - CronMinute
+          - NotificationEmailRecipient
       - Label:
           default: Query Configuration
         Parameters:
@@ -94,6 +95,11 @@ Parameters:
       - 50
       - 55
     Default: 0
+
+  NotificationEmailRecipient:
+    Description: An email address to subscribe to the SNS topic that gets notified with the optimization results
+    Type: String
+    MinLength: 5
 
   PricingTerms:
     Description: Price you pay on your invoice (NET) or list price (GROSS). These are often the same.
@@ -375,3 +381,10 @@ Resources:
     Type: AWS::SNS::Topic
     Properties:
       TopicName: DynamoDB-StorageClass-Optimizer-Reports
+
+  TopicSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref ReportTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmailRecipient
