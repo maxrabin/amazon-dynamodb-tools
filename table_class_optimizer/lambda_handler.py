@@ -1,7 +1,7 @@
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Generator, Iterable
 from dataclasses import asdict, dataclass
-from typing import Generator
+from typing import Self
 
 import boto3
 from botocore.exceptions import ClientError
@@ -26,7 +26,7 @@ class QueryResultData:
     updated: bool = False
 
     @classmethod
-    def from_dict(cls, dct: dict[str, str]):
+    def from_dict(cls, dct: dict[str, str]) -> Self:
         return cls(
             region=dct["region"],
             account_id=dct["account_id"],
@@ -72,7 +72,11 @@ def get_query_results(query_id: str) -> Generator[QueryResultData, None, None]:
                 yield QueryResultData.from_dict(dict(zip(keys, values)))
 
 
-def update_tables_in_account(key, changes, is_dry_run: bool):
+def update_tables_in_account(
+    key: AccountRegionPair,
+    changes: Iterable[QueryResultData],
+    is_dry_run: bool,
+):
     dynamodb_client = get_dynamodb_client(
         account_id=key.account_id, region_name=key.region
     )
