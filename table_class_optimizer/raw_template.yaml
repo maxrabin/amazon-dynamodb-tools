@@ -238,17 +238,24 @@ Resources:
                 IsDryRun: "{% $states.context.Execution.Input.IsDryRun ? true : false  %}"
                 QueryExecutionId: "{% $states.input.QueryExecutionId  %}"
                 QueryOutputLocation: "{% $states.input.QueryOutputLocation  %}"
-            Next: Publish Report
+            Next: Were Updates Made
+          Were Updates Made:
+            Type: Choice
+            Choices:
+              - Condition: "{%  $reduce($states.input, function($acc, $v) { $acc or $v.updated }, false)  %}"
+                Next: Publish Report
+            Default: Success
           Publish Report:
             Type: Task
             Resource: !Sub arn:${AWS::Partition}:states:::sns:publish
             Arguments:
               TopicArn: !Ref ReportTopic
+              Subject: '{% ($states.context.Execution.Input.IsDryRun ? "[Dry Run]" : "[Action Required]") & "DynamoDB Table Class Optimizer Execution Report" %}'
               Message: '{%
                 $join(
                  $append(
-                  ["The DynamoDB Table Class Optimizer completed.\nThese are the changes it performed and the status of those changes:"],
-                  $map($, function($v) {
+                  ["The DynamoDB Table Class Optimizer completed.\nPlease review the changes and update your Infrastructure as Code if necessary:"],
+                  $map($states.input, function($v) {
                    $join([
                     "Region: "        & $v.region,
                     "Account ID: "    & $v.account_id,
@@ -261,6 +268,8 @@ Resources:
                 ), "\n=====\n")
                 %}'
             End: true
+          Success:
+            Type: Succeed
       RoleArn: !GetAtt StepFunctionRole.Arn
       StateMachineName: DynamoDB-StorageClass-Optimizer
       StateMachineType: STANDARD
@@ -316,6 +325,7 @@ Resources:
                   - Effect: Allow
                     Action:
                     - dynamodb:UpdateTable
+                    - dynamodb:DescribeTable
                     Resource:
                     - Fn::Sub: arn:${!AWS::Partition}:dynamodb:*:${!AWS::AccountId}:table/*
               RoleName: DynamoDBStorageClassOptimizer
