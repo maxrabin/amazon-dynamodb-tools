@@ -177,4 +177,38 @@ The time to update your table class depends on your table traffic, storage size,
 #### Is it possible to switch back to Standard from Standard IA?
 Yes. No more than two table class updates on your table are allowed in a 30-day trailing period. 
 
+## Table Class Automation
+The Query gives recommendations. This project also contains scripts for creating a tool in your AWS Account that automatically implements the recommendations at regular intervals (ex. Monthly). This was built to support multiple AWS Accounts in an Organization. It is installed as a CloudFormation stack that creates:
+ - A Step Function to orchestrate the process of querying for recommendations and a Lambda Function that makes the API calls on the AWS Account where the DynamoDB table exists
+ - IAM Role for the Step Function
+ - EventBridge Schedule to trigger the Step Function
+ - Athena Saved Query with the contents of [DDB_TableClassReco.sql](DDB_TableClassReco.sql)
+ - Lambda Function that implements the recommendations
+ - IAM Role for the Lambda Function
+ - CloudFormation StackSet for each of the Child accounts that has an IAM Role for that account that can be Assumed by the Lambda Function and will be used in that child account to update the DynamoDB Table Class of the Tables that have recommended changes
+ - SNS Topic to be notified of the performed changes
+ - SNS Subscription via Email to the SNS Topic to be notified when updates are performed.
 
+### How to Deploy
+
+### Design Considerations
+It is important that this entire CloudFormation stack be distributed as a single Template file. This will allow it to be distributed more easily, such as via a [quick-create link](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/cfn-console-create-stacks-quick-create-links.html). Therefore, the SQL query and the Lambda Function code must be inlined into the Template. However, the query [DDB_TableClassReco.sql](DDB_TableClassReco.sql) should remain as a separate file that can be used or modified independently of this CloudFormation stack. Also, the developer experience (editor tooling) of editing `.sql` and `.py` files by themselves is superior to having them inlined in the template.
+
+Therefore this project contains a [raw_template.yaml](raw_template.yaml) template file which serves as the foundation of the CloudFormation stack. The Python script [generate_cloud_formation.py](generate_cloud_formation.py) takes the [lambda_handler.py](lambda_handler.py) as the [DDB_TableClassReco.sql](DDB_TableClassReco.sql) files and inlines them into the raw_template.yaml to produce `template.yaml`. The resulting `template.yaml` can be deployed to CloudFormation in a management account that has access to query the Cost and Usage Report (CUR) files and also has permission to create a CloudFormation StackSet (containing an IAM Role for performing the Table Class updates) in the target accounts that have the DynamoDB tables.
+
+Once `template.yaml` has been generated, it can be deployed as per the documentation [Create a stack from the CloudFormation console](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/cfn-console-create-stack.html) or [Create a stack via CLI](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/service_code_examples.html#create-stack-sdk). See the resulting `template.yaml` for the full list of CloudFormation Parameters.
+
+Example usage (please update the values of the `--parameter-overrides` with the appropriate values):
+```bash
+python generate_cloud_formtation.py
+aws cloudformation deploy \
+        --template-file ./template.yaml \
+        --stack-name DynamoDB-Storage-Class-Optimizer \
+        --capabilities CAPABILITY_NAMED_IAM \
+        --no-fail-on-empty-changeset \
+        --parameter-overrides \
+        AthenaCURDatabase=CUR_DB \
+        AthenaCURTable=CUR_TABLE \
+        NotificationEmailRecipient=YOUR_EMAIL \
+        OrganizationlUnitIds=OU_IDs
+```
