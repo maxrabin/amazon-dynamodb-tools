@@ -1,6 +1,13 @@
+import os
 from collections import defaultdict
 from collections.abc import Generator, Iterable
-from dataclasses import asdict, dataclass
+from csv import DictWriter
+from dataclasses import asdict, dataclass, fields
+from datetime import datetime
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from io import StringIO
 from typing import Self
 
 import boto3
@@ -8,6 +15,7 @@ from botocore.exceptions import ClientError
 
 athena = boto3.client("athena")
 sts = boto3.client("sts")
+ses = boto3.client("sesv2")
 
 
 @dataclass(frozen=True)
@@ -133,7 +141,80 @@ def main(query_id: str, is_dry_run: bool) -> Generator[QueryResultData, None, No
         yield from update_tables_in_account(key, changes, is_dry_run)
 
 
-def lambda_handler(event: dict, _) -> list[dict]:
+def publish_results(result_data: Iterable[QueryResultData], dry_run: bool) -> None:
+    sender: str = os.environ["SENDER_ADDRESS"]
+    recipients_str: str = os.environ["RECIPIENTS"]
+    recipients_list: list[str] = recipients_str.split(",")
+    SUBJECT = "[Action Required] DynamoDB Table Class Optimizer Report"
+    BODY_TEXT = "Hello,\r\nPlease see the attached file for a list of DynamoDB Table Class optimization Recommendations."
+
+    # The HTML body of the email.
+    BODY_HTML = """
+    <html>
+    <head/>
+    <body>
+    <h1>Hello!</h1>
+    <p>Please see the attached file for a list of DynamoDB Table Class optimization Recommendations.</p>
+    </body>
+    </html>
+    """
+
+    # The character encoding for the email.
+    CHARSET = "utf-8"
+    msg = MIMEMultipart("mixed")
+    # Add subject, from and to lines.
+    msg["Subject"] = SUBJECT
+    msg["From"] = sender
+    msg["To"] = recipients_str
+
+    # Create a multipart/alternative child container.
+    msg_body = MIMEMultipart("alternative")
+
+    # Encode the text and HTML content and set the character encoding. This step is
+    # necessary if you're sending a message with characters outside the ASCII range.
+    textpart = MIMEText(BODY_TEXT, "plain", CHARSET)
+    htmlpart = MIMEText(BODY_HTML, "html", CHARSET)
+
+    # Add the text and HTML parts to the child container.
+    msg_body.attach(textpart)
+    msg_body.attach(htmlpart)
+
+    output = StringIO()
+    my_fields = [f.name for f in fields(QueryResultData)]
+    writer = DictWriter(output, fieldnames=my_fields)
+    writer.writeheader()
+    writer.writerows(asdict(data) for data in result_data)
+    # Define the attachment part and encode it using MIMEApplication.
+    att = MIMEApplication(output.getvalue())
+
+    # Add a header to tell the email client to treat this part as an attachment,
+    # and to give the attachment a name.
+    att.add_header(
+        "Content-Disposition",
+        "attachment",
+        filename=f"DDB_Table_Classs_Report_{datetime.now().isoformat(timespec="seconds")}",
+    )
+
+    # Attach the multipart/alternative child container to the multipart/mixed
+    # parent container.
+    msg.attach(msg_body)
+    msg.attach(att)
+
+    # changes start from here
+    strmsg = str(msg)
+    body = bytes(strmsg, "utf-8")
+
+    response = ses.send_email(
+        FromEmailAddress=sender,
+        Destination={
+            "ToAddresses": recipients_list,
+        },
+        Content={"Raw": {"Data": body}},
+    )
+    print(response)
+
+
+def lambda_handler(event: dict, _) -> None:
     assert isinstance((query_id := event.get("QueryExecutionId")), str)
     is_dry_run: bool = (
         passed_value
@@ -143,4 +224,4 @@ def lambda_handler(event: dict, _) -> list[dict]:
         else False
     )
     result_data: Iterable[QueryResultData] = main(query_id, is_dry_run)
-    return [asdict(result) for result in result_data]
+    publish_results(result_data, is_dry_run)
