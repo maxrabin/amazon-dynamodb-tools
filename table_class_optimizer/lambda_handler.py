@@ -1,4 +1,6 @@
+import io
 import os
+import zipfile
 from collections import defaultdict
 from collections.abc import Generator, Iterable
 from csv import DictWriter
@@ -7,7 +9,6 @@ from datetime import datetime
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from io import StringIO
 from typing import Self
 
 import boto3
@@ -179,20 +180,27 @@ def publish_results(result_data: Iterable[QueryResultData], dry_run: bool) -> No
     msg_body.attach(textpart)
     msg_body.attach(htmlpart)
 
-    output = StringIO()
+    csv_name = (
+        f"DDB_Table_Classs_Report_{datetime.now().isoformat(timespec="seconds")}.csv"
+    )
+    output = io.StringIO()
     my_fields = [f.name for f in fields(QueryResultData)]
     writer = DictWriter(output, fieldnames=my_fields)
     writer.writeheader()
     writer.writerows(asdict(data) for data in result_data)
     # Define the attachment part and encode it using MIMEApplication.
-    att = MIMEApplication(output.getvalue())
+    csv_str: str = output.getvalue()
+    bytes_io = io.BytesIO()
+    with zipfile.ZipFile(bytes_io, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        zip_file.writestr(csv_name, csv_str)
+    att = MIMEApplication(bytes_io.getvalue())
 
     # Add a header to tell the email client to treat this part as an attachment,
     # and to give the attachment a name.
     att.add_header(
         "Content-Disposition",
         "attachment",
-        filename=f"DDB_Table_Classs_Report_{datetime.now().isoformat(timespec="seconds")}",
+        filename=f"{csv_name}.zip",
     )
 
     # Attach the multipart/alternative child container to the multipart/mixed
