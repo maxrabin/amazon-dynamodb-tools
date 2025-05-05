@@ -1,6 +1,5 @@
 import io
 import os
-import zipfile
 from collections import defaultdict
 from collections.abc import Generator, Iterable
 from csv import DictWriter
@@ -9,14 +8,16 @@ from datetime import datetime
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from enum import StrEnum
 from typing import Self
 
 import boto3
 from botocore.exceptions import ClientError
 
-athena = boto3.client("athena")
-sts = boto3.client("sts")
-ses = boto3.client("sesv2")
+
+class ExecutionMode(StrEnum):
+    REPORT_AND_EXECUTE = "ReportAndExecute"
+    REPORT_ONLY = "ReportOnly"
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,14 @@ class QueryResultData:
         return AccountRegionPair(account_id=self.account_id, region=self.region)
 
 
+athena = boto3.client("athena")
+sts = boto3.client("sts")
+ses = boto3.client("sesv2")
+
+execution_mode_str = os.environ.get("EXECUTION_MODE", ExecutionMode.REPORT_ONLY.value)
+execution_mode = ExecutionMode(execution_mode_str)
+
+
 def get_dynamodb_client(account_id: str, region_name: str):
     response = sts.assume_role(
         RoleArn=f"arn:aws:iam::{account_id}:role/DynamoDBStorageClassOptimizer",
@@ -66,7 +75,7 @@ def get_dynamodb_client(account_id: str, region_name: str):
     return dynamodb
 
 
-def get_query_results(query_id: str) -> Generator[QueryResultData, None, None]:
+def get_query_results(query_id: str) -> Generator[QueryResultData]:
     paginator = athena.get_paginator("get_query_results")
     response_iterator = paginator.paginate(QueryExecutionId=query_id)
     keys: None | list[str] = None
@@ -86,7 +95,6 @@ def get_query_results(query_id: str) -> Generator[QueryResultData, None, None]:
 def update_tables_in_account(
     key: AccountRegionPair,
     changes: Iterable[QueryResultData],
-    is_dry_run: bool,
 ):
     dynamodb_client = get_dynamodb_client(
         account_id=key.account_id, region_name=key.region
@@ -114,10 +122,10 @@ def update_tables_in_account(
                 == change.recommendation
             ):
                 change.update_result = (
-                    "Table Class already optimized. Not performing any change."
+                    "Table Class already optimized. No changes necessary."
                 )
-            elif is_dry_run:
-                change.update_result = "Dry Run - Did not update"
+            elif execution_mode == ExecutionMode.REPORT_ONLY:
+                change.update_result = "Report Only - did not update"
             else:
                 update_result = dynamodb_client.update_table(
                     TableName=change.table_name,
@@ -134,17 +142,21 @@ def update_tables_in_account(
         yield change
 
 
-def main(query_id: str, is_dry_run: bool) -> Generator[QueryResultData, None, None]:
+def main(
+    query_id: str,
+) -> Generator[QueryResultData]:
     tables_per_account_and_region: defaultdict[
         AccountRegionPair, list[QueryResultData]
     ] = defaultdict(list)
     for result in get_query_results(query_id):
         tables_per_account_and_region[result.as_account_and_region].append(result)
     for key, changes in tables_per_account_and_region.items():
-        yield from update_tables_in_account(key, changes, is_dry_run)
+        yield from update_tables_in_account(key, changes)
 
 
-def publish_results(result_data: Iterable[QueryResultData], dry_run: bool) -> None:
+def publish_results(
+    result_data: Iterable[QueryResultData],
+) -> None:
     sender: str = os.environ["SENDER_ADDRESS"]
     recipients_str: str = os.environ["RECIPIENTS"]
     recipients_list: list[str] = recipients_str.split(",")
@@ -172,17 +184,14 @@ def publish_results(result_data: Iterable[QueryResultData], dry_run: bool) -> No
         writer.writerow(asdict(data))
     # Define the attachment part and encode it using MIMEApplication.
     csv_str: str = output.getvalue()
-    bytes_io = io.BytesIO()
-    with zipfile.ZipFile(bytes_io, "w", zipfile.ZIP_DEFLATED) as zip_file:
-        zip_file.writestr(csv_name, csv_str)
-    att = MIMEApplication(bytes_io.getvalue())
+    att = MIMEApplication(csv_str)
 
     # Add a header to tell the email client to treat this part as an attachment,
     # and to give the attachment a name.
     att.add_header(
         "Content-Disposition",
         "attachment",
-        filename=f"{csv_name}.zip",
+        filename=csv_name,
     )
 
     BODY_TEXT = f"The DynamoDB Table Class Optimizer has found {recommendation_count:,} DynamoDB tables whose Table Class can potentially be optimized.\nThe calculated potential savings is *${sum_savings:,}*.\nAttached to this email is a CSV of recommended modifications."
@@ -246,12 +255,5 @@ def publish_results(result_data: Iterable[QueryResultData], dry_run: bool) -> No
 
 def lambda_handler(event: dict, _) -> None:
     assert isinstance((query_id := event.get("QueryExecutionId")), str)
-    is_dry_run: bool = (
-        passed_value
-        if "IsDryRun" in event
-        and (passed_value := event["IsDryRun"])
-        and isinstance(passed_value, bool)
-        else False
-    )
-    result_data: Iterable[QueryResultData] = main(query_id, is_dry_run)
-    publish_results(result_data, is_dry_run)
+    result_data: Iterable[QueryResultData] = main(query_id)
+    publish_results(result_data)
