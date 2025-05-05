@@ -23,9 +23,9 @@ def my_indenter(num: int, text: str) -> str:
 
 
 def main():
-    with open("./DDB_TableClassReco.sql", "r") as sql, open(
-        "./lambda_handler.py", "r"
-    ) as lambda_handler, open("./raw_template.yaml", "r") as stack_template, open(
+    with open("./DDB_TableClassReco.sql") as sql, open(
+        "./lambda_handler.py"
+    ) as lambda_handler, open("./raw_template.yaml") as stack_template, open(
         "./template.yaml", "w"
     ) as output:
         result: str = (
