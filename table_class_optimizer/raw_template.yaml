@@ -43,7 +43,7 @@ Parameters:
 
   OrganizationlUnitIds:
     Type: CommaDelimitedList
-    AllowedPattern: ^(r-[0-9a-z]{4,32})|(ou-[0-9a-z]{4,32}-[a-z0-9]{8,32})$
+    AllowedPattern: ^(r-[0-9a-z]{4,32})|(ou-[0-9a-z]{4,32}-[a-z0-9]{8,32})|(o-[0-9a-z]{10})$
     ConstraintDescription: Either Root ID (r-...) or Organizational unit (OU) ID (ou-....-.........)
 
   CronDayOfMonth:
