@@ -124,6 +124,8 @@ def update_tables_in_account(
             .upper()
             .replace("_IA", "_INFREQUENT_ACCESS")
         )
+        if change.recommendation == "OPTIMIZED":
+            continue
         assert change.recommendation in ("STANDARD", "STANDARD_INFREQUENT_ACCESS")
         print(
             f"Updating table {change.table_name} to storage class {change.recommendation}"
