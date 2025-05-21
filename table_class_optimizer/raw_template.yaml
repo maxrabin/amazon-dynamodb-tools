@@ -15,6 +15,7 @@ Metadata:
           - CronDayOfMonth
           - CronHour
           - CronMinute
+          - SesSenderIdentity
           - SesSenderEmailAddress
           - NotificationEmailRecipients
           - ExecuteRecommendations
@@ -115,7 +116,7 @@ Parameters:
     ConstraintDescription: Each item must be a valid email address.
 
   ExecutionMode:
-    Description: If Yes, the system will automatically apply the Table Class modifications found in the report. *Warning*! Table Class updates are limited to 2 per month per Table. Also, if you manage a table in Infrastructure as Code, this update can cause drift and you should update your IaC appropriately.
+    Description: If set to ReportAndExecute, the system will automatically apply the Table Class modifications found in the report. *Warning*! Table Class updates are limited to 2 per month per Table. Also, if you manage a table in Infrastructure as Code, this update can cause drift and you should update your IaC appropriately.
     Type: String
     AllowedValues:
       - ReportAndExecute
