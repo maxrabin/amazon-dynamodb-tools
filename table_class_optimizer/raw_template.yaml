@@ -349,11 +349,14 @@ Resources:
               - Effect: Allow
                 Action:
                   - athena:GetQueryResults
+                  - dynamodb:DescribeTable
+                  - dynamodb:UpdateTable
                   - ses:SendEmail
                   - ses:SendRawEmail
                   - sts:AssumeRole
                 Resource:
                   - !Sub arn:${AWS::Partition}:athena:${AWS::Region}:${AWS::AccountId}:workgroup/${AthenaWorkgroup}
+                  - !Sub arn:${AWS::Partition}:dynamodb:*:${AWS::AccountId}:table/*
                   - !Sub arn:${AWS::Partition}:iam::*:role/DynamoDBStorageClassOptimizer
                   - !Sub arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SesSenderIdentity}
 
@@ -376,4 +379,5 @@ Resources:
             - ','
             - !Ref NotificationEmailRecipients
           SENDER_ADDRESS: !Ref SesSenderEmailAddress
+          MASTER_ACCOUNT_ID: !Ref AWS::AccountId
       Timeout: 60

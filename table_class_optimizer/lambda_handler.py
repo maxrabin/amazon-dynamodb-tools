@@ -59,7 +59,10 @@ execution_mode_str = os.environ.get("EXECUTION_MODE", ExecutionMode.REPORT_ONLY.
 execution_mode = ExecutionMode(execution_mode_str)
 
 
-def get_dynamodb_client(account_id: str, region_name: str):
+def get_dynamodb_client(
+    account_id: str,
+    region_name: str,
+):
     response = sts.assume_role(
         RoleArn=f"arn:aws:iam::{account_id}:role/DynamoDBStorageClassOptimizer",
         RoleSessionName="DynamoDBStorageClassOptimizer",
@@ -75,7 +78,9 @@ def get_dynamodb_client(account_id: str, region_name: str):
     return dynamodb
 
 
-def get_query_results(query_id: str) -> Generator[QueryResultData]:
+def get_query_results(
+    query_id: str,
+) -> Generator[QueryResultData]:
     paginator = athena.get_paginator("get_query_results")
     response_iterator = paginator.paginate(QueryExecutionId=query_id)
     keys: None | list[str] = None
@@ -96,9 +101,19 @@ def update_tables_in_account(
     key: AccountRegionPair,
     changes: Iterable[QueryResultData],
 ):
-    dynamodb_client = get_dynamodb_client(
-        account_id=key.account_id, region_name=key.region
-    )
+    # According to https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/stacksets-orgs-associate-stackset-with-org.html
+    # "StackSets doesn't deploy stacks to the organization's management account, even if the management account is in your organization or in an OU in your organization."
+    # So we don't have an IAM Role to assume in this (master) account which is fine because we're already here
+    if key.account_id == os.environ.get("MASTER_ACCOUNT_ID"):
+        dynamodb_client = boto3.client(
+            "dynamodb",
+            region_name=key.region,
+        )
+    else:
+        dynamodb_client = get_dynamodb_client(
+            account_id=key.account_id,
+            region_name=key.region,
+        )
     for change in changes:
         # The Athena query result returns recommendation "Candiate for Standard"
         # or "Candidate for Standard_IA" but the API is expecting either "STANDARD"
