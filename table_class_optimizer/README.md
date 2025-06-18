@@ -493,9 +493,46 @@ For persistent issues or questions not covered here, please refer to the project
 
 ## Changelog
 
+### v2.0.0 (Automation Release - 2025-06-18)
+- **NEW: Automated Optimization System**
+  - Added fully automated, serverless solution for continuous DynamoDB table class optimization
+  - Integrated serverless architecture using AWS Lambda, Step Functions, EventBridge, and SES
+  - CloudFormation template for one-click deployment across AWS Organizations
+  - Cross-account table class management with IAM role automation
+  - Automated monthly reporting with CSV attachments via SES
+  - Configurable execution modes: ReportOnly and ReportAndExecute
+  - Support for custom scheduling (daily, weekly, monthly) with cron expressions
+- **Enhanced Configuration**
+  - 15+ configuration parameters for fine-tuned control
+  - Support for filtering by Account IDs, Payer IDs, Table Names, and Regions
+  - Configurable minimum savings thresholds and pricing terms (NET/GROSS)
+  - Organization Unit (OU) support for enterprise deployments
+- **Improved Documentation**
+  - Comprehensive troubleshooting guide with 8 common scenarios
+  - Cost estimation guide for operational expenses
+  - Detailed parameter documentation with examples
+  - Architecture diagrams and workflow explanations
+- **Developer Experience**
+  - Automated CloudFormation template generation from modular components
+  - Support for both CloudFormation Console and CLI deployment
+  - Integration with existing manual query workflow
+
 ### v1.0.0 (Initial Release - 2025-06-15)
-- Initial release of DynamoDB Table Class Optimizer
-- Manual Athena query tool for table class recommendations
-- Added automated optimization system with CloudFormation deployment
-- Integrated serverless architecture using Lambda, Step Functions, and EventBridge
-- Added comprehensive troubleshooting guide and configuration parameters
+- **Initial Manual Query Tool**
+  - Athena SQL query for DynamoDB table class cost analysis
+  - Support for both SUMMARY and DETAILED report types
+  - Configurable analysis parameters (months to scan, minimum savings, etc.)
+  - Cost and Usage Report (CUR) integration
+  - Support for multiple AWS accounts and regions
+  - Table class recommendations based on storage vs throughput cost ratios
+- **Core Features**
+  - Standard to Standard-IA optimization (60% storage savings, 25% throughput increase)
+  - Standard-IA to Standard optimization (20% throughput savings, 150% storage increase)
+  - Reserved capacity detection and handling
+  - Custom date range analysis
+  - NET vs GROSS pricing support
+- **Documentation**
+  - Comprehensive user guide with step-by-step instructions
+  - FAQ section with calculation explanations
+  - Best practices and limitations documentation
+  - Manual table class switching instructions
