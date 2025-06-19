@@ -5,7 +5,7 @@
 - [Solutions](#solutions)
   - [Manual Query Tool](#manual-query-tool)
   - [Automated Optimization System](#automated-optimization-system)
-- [Manual Query User Guide](#manual-query-user-guide)
+- [Manual Query Tool - User Guide](#manual-query-user-guide)
   - [Enabling Cost and Usage Report (CUR)](#enabling-cost-and-usage-report-cur)
   - [Execution steps](#execution-steps)
   - [Parameters](#parameters)
@@ -13,16 +13,16 @@
   - [Interpretation](#interpretation)
   - [Best practices](#best-practices)
   - [Important notes](#important-notes)
-- [Automated System Deployment](#automated-system-deployment)
+  - [The Query](#the-query)
+  - [Limitations](#limitations)
+  - [FAQ](#faq)
+- [Automated Optimization System - User Guide](#automated-optimization-system-user-guide)
   - [Prerequisites](#prerequisites)
   - [Deployment Options](#deployment-options)
   - [Configuration Parameters](#configuration-parameters)
   - [Cost Estimation](#cost-estimation)
-- [The Query](#the-query)
-- [Limitations](#limitations)
-- [FAQ](#faq)
-- [Troubleshooting](#troubleshooting)
-- [Changelog](#changelog)
+  - [Troubleshooting](#troubleshooting)
+  - [Changelog](#changelog)
 
 ## Overview
 
@@ -125,11 +125,109 @@ To get a summary of your total potential savings at the payer level, use the que
 - Tables using reserved capacity are not considered for optimization but are included in total cost calculations.
 - The difference between 'NET' and 'GROSS' results can help you understand the impact of your EDP or PPA discounts on potential savings.
 
-## Automated System Deployment
+### The query
+Download the [DDB_TableClassReco.sql](DDB_TableClassReco.sql) file.
+
+### Limitations
+
+1. **Reserved Capacity**:
+   - Reserved Capacity purchasing is currently not supported for the Standard-IA table class.
+   - Customers who have already purchased 1-year or 3-year Reserved Instances (RIs) for the Standard table class may not be able to instantly switch their tables to the Standard-IA class.
+   - This limitation applies only to tables in Provisioned Capacity mode, as there is no concept of RIs for On-Demand capacity mode.
+
+2. **Provisioned Tables with Reservations**:
+   - The Athena query automatically marks tables that are using reserved capacity as "Optimized".
+   - This is done to focus the results on tables without reservations, as switching the table class for reserved capacity tables may not result in additional cost savings.
+
+3. **New or Unstable Workloads**:
+   - The query and recommendations provided by this tool are most accurate for DynamoDB tables that have at least 3 months of stable usage data. 
+   - Tables with major changes in access patterns or storage/throughput needs may not show accurate recommendations, as the analysis relies on recent historical data.
+
+4. **Table Class Update Limit**:
+   - Customers are limited to no more than two table class updates on a single table within a 30-day trailing period.
+
+5. **Query Execution Time**:
+   - Using a large `months_to_scan` value (greater than 6 months) may result in long and costly query execution times.
+   - It's recommended to start with a smaller time range, such as 3 months or less, to get faster results and lower query costs.
+     
+6. **Discount Percentages are Estimates**
+   - The discount percentages used in the tool when calculating the potential savings from switching table classes (60% for storage and 25% for throughput for example) are average values.
+   - The actual discounts may slightly differ across AWS regions, so the table costs and potential savings shown are estimates and may vary from the actual values.
+
+### FAQ
+
+#### What are the feature highlights?
+New table storage class beneficial for those existing DynamoDB workloads where access to the data is very infrequent, but storage size is quite large. Particularly if storage is the dominant cost driver for a table, Standard_IA can help:
+- Reduce Storage Costs by 60%
+- With Throughput Cost increasing by 25%
+- Same cost ratios apply irrespective of Provisioned/On-Demand Capacity Modes, Global Tables or Single region tables
+
+#### When is it recommended to switch back to Standard?
+When you switch from Standard-IA to Standard, you will pay 20% less on the throughput (read/write) cost and 150% more on the storage cost. Particularly if throughput is the clear dominant cost driver for a table. The rule of thumb is if your throughput cost is x7.5 than the storage cost, Standard will be a be a more cost-effective table class for your usage.
+
+#### How to identify which tables are candidates for cost optimization with using Standard IA or Standard?
+- If StorageCosts > 0.42 x ThroughputCosts, table is a candidate for Standard IA table class and can benefit with switching the table class for a quick cost optimization win
+- If StorageCosts < 0.13 x ThroughputCosts, table is a candidate for Standard table class and can benefit with switching the table class for a quick cost optimization win.
+
+#### What are the calculations behind the table class recommendations?
+- Standard to Standard-IA:
+  - Given, when change to Standard-IA, you will pay 25% more on Throughput (Read/Write) cost and 60% less on Storage cost
+  - Potential saving = 0.6 *(actual_storage_cost) - 0.25 *(actual_throughput_cost)
+  - It is recommended to move from Standard to Standard-IA if:
+  - actual_storage_cost > (0.25/0.6) *(actual_throughput_cost)
+  - Then the break-even is: actual_storage_cost / actual_throughput_cost > ~42% (41.16%)
+
+- Standard-IA to Standard: 
+  - Given, when change to Standard, you will pay 20% less on Throughput (Read/Write) cost and 150% more on Storage cost
+  - Potential Saving = 0.2*(actual_throughput_cost_ia) - 1.5 *(_actual_storage_cost_ia )
+  - It is recommended to switch back from Standard-IA to Standard if:
+  - actual_storage_cost_ia < (0.2/1.5) *(actual_throughput_cost_ia)
+  - Then the break-even: actual_storage_cost_ia / actual_throughput_cost_ia < ~13% (13.33%)
+
+#### What is the effort on the AWS customer's side?
+For the manual approach, the effort from AWS customer's side is to flip the table class of their candidate DynamoDB tables from STANDARD to STANDARD_INFREQUENT_ACCESS using either the Console, SDKs or Infrastructure as Code Tools (CFN, Terraform etc).
+
+For the automated approach, the effort is minimal after initial setup - the system handles optimization automatically based on your configuration.
+
+#### How do I switch the table classes manually from the console?
+
+Here are the steps to manually switch a DynamoDB table from Standard from/to Standard-Infrequent Access (Standard-IA) class:
+1. Sign in to the AWS Management Console.
+2. Navigate to the DynamoDB service.
+3. In the navigation pane, choose "Tables".
+4. Select the table you want to modify.
+5. Choose the "Additional settings" tab.
+6. In the "Table class" section, choose "Edit".
+7. Based on the report results, select "DynamoDB Standard-Infrequent Access" or "Standard" as the new table class.
+8. Choose "Save changes".
+9. Review the changes and confirm by choosing "Change table class".
+10. Wait for the table status to change from "Updating" back to "Active". This process may take several minutes.
+11. Once complete, verify the new table class in the table details.
+
+##### Important notes
+  - Switching table classes can take several minutes to complete.
+  - You can't switch table classes more than twice in a 30-day period.
+  - Switching to Standard-IA is best for tables with infrequent access patterns.
+  - Monitor your costs after switching to ensure the change is beneficial for your use case.
+  - Remember that Standard-IA has higher costs for data access but lower storage costs.
+  - For bulk operations or automation, consider using the AWS CLI or SDKs with the UpdateTable API call, specifying the TableClass parameter. For example, in Python the Boto3 DynamoDB [update_table](https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/dynamodb/client/update_table.html) API can be used. 
+
+#### How long would it take for the changes to replicate?
+The time to update your table class depends on your table traffic, storage size, and other related variables. Actual switch of table classes could take up to a few minutes depending on the size of the table and above mentioned variables, however there is no performance degradation or impact to the table during or after this switch. In reality, the table class switch could be considered as simply a different billing plan for the tables.
+
+#### What is the performance impact on using Standard IA table class?
+ No performance difference between Standard and Standard-IA (S-IA) table classes. Same consistent single digit millisecond average latencies at any scale. Same integrations with other AWS Services. Same costs for every other DynamoDB feature except for Throughput and Storage (Eg: same pricing for backups, PITR, streams etc irrespective of the storage class).
+
+#### Is it possible to switch back to Standard from Standard IA?
+Yes. No more than two table class updates on your table are allowed in a 30-day trailing period. 
+
+## Automated Optimization System User Guide
 
 The automated solution utilizes customer usage data from Athena CUR queries and operates as a serverless solution using Lambda, Step Functions, EventBridge, and Amazon SES. The solution is designed to scale and can be implemented by any customer directly from the DynamoDB Tools in the AWS Labs repository.
 
 ### Solution Architecture
+<img width="608" alt="image" src="https://github.com/user-attachments/assets/f56677cb-dc0d-4f5d-83cd-9f3b957b239e" />
+
 
 The automated system workflow:
 
@@ -160,8 +258,9 @@ The automated system workflow:
 1. Navigate to CloudFormation in your AWS Console
 2. Create new stack with template
 3. Upload the template.yaml file
-4. Fill in required parameters
-5. Review and create stack
+4. Fill in required [parameters](#configuration-parameters)
+5. Review and create stack  see [screenshots](#screenshots) below. 
+
 
 #### Option 2: AWS CLI
 
@@ -182,8 +281,22 @@ aws cloudformation deploy \
         NotificationEmailRecipients=<emails> \
         OrganizationlUnitIds=<ou-id>
 ```
+#### Screenshots
+Stack and Resources at the end of the deployment:
+   <img width="1890" alt="SCR-20250527-nxik" src="https://github.com/user-attachments/assets/50d24d3a-d87c-437b-a457-9d0cc473a5ba" />
+Step function after the first run:
+   <img width="1426" alt="image" src="https://github.com/user-attachments/assets/01a7d800-670a-4125-8a7b-bdb6c639a5c9" />
+Past executions history:
+    <img width="1160" alt="image" src="https://github.com/user-attachments/assets/efa3405c-2bba-49dc-b5f9-514c5c170cd0" />
+Report body and attachment:
+<img width="1443" alt="image" src="https://github.com/user-attachments/assets/057ecbdb-a135-47eb-9438-4363fc339e18" />
 
+   
 ### Configuration Parameters
+
+Example of paramenters screen in CloudFormation: 
+<img width="941" alt="image" src="https://github.com/user-attachments/assets/ba1f2e1f-be12-4ada-afb0-3f81118bcc00" />
+
 
 #### Execution Configuration
 
@@ -322,102 +435,6 @@ The project contains a [raw_template.yaml](raw_template.yaml) template file as t
 
 The resulting `template.yaml` can be deployed to CloudFormation in a management account that has access to query the Cost and Usage Report (CUR) files and also has permission to create a CloudFormation StackSet (containing an IAM Role for performing the Table Class updates) in the target accounts that have the DynamoDB tables.
 
-## The query
-Download the [DDB_TableClassReco.sql](DDB_TableClassReco.sql) file.
-
-## Limitations
-
-1. **Reserved Capacity**:
-   - Reserved Capacity purchasing is currently not supported for the Standard-IA table class.
-   - Customers who have already purchased 1-year or 3-year Reserved Instances (RIs) for the Standard table class may not be able to instantly switch their tables to the Standard-IA class.
-   - This limitation applies only to tables in Provisioned Capacity mode, as there is no concept of RIs for On-Demand capacity mode.
-
-2. **Provisioned Tables with Reservations**:
-   - The Athena query automatically marks tables that are using reserved capacity as "Optimized".
-   - This is done to focus the results on tables without reservations, as switching the table class for reserved capacity tables may not result in additional cost savings.
-
-3. **New or Unstable Workloads**:
-   - The query and recommendations provided by this tool are most accurate for DynamoDB tables that have at least 3 months of stable usage data. 
-   - Tables with major changes in access patterns or storage/throughput needs may not show accurate recommendations, as the analysis relies on recent historical data.
-
-4. **Table Class Update Limit**:
-   - Customers are limited to no more than two table class updates on a single table within a 30-day trailing period.
-
-5. **Query Execution Time**:
-   - Using a large `months_to_scan` value (greater than 6 months) may result in long and costly query execution times.
-   - It's recommended to start with a smaller time range, such as 3 months or less, to get faster results and lower query costs.
-     
-6. **Discount Percentages are Estimates**
-   - The discount percentages used in the tool when calculating the potential savings from switching table classes (60% for storage and 25% for throughput for example) are average values.
-   - The actual discounts may slightly differ across AWS regions, so the table costs and potential savings shown are estimates and may vary from the actual values.
-
-## FAQ
-
-#### What are the feature highlights?
-New table storage class beneficial for those existing DynamoDB workloads where access to the data is very infrequent, but storage size is quite large. Particularly if storage is the dominant cost driver for a table, Standard_IA can help:
-- Reduce Storage Costs by 60%
-- With Throughput Cost increasing by 25%
-- Same cost ratios apply irrespective of Provisioned/On-Demand Capacity Modes, Global Tables or Single region tables
-
-#### When is it recommended to switch back to Standard?
-When you switch from Standard-IA to Standard, you will pay 20% less on the throughput (read/write) cost and 150% more on the storage cost. Particularly if throughput is the clear dominant cost driver for a table. The rule of thumb is if your throughput cost is x7.5 than the storage cost, Standard will be a be a more cost-effective table class for your usage.
-
-#### How to identify which tables are candidates for cost optimization with using Standard IA or Standard?
-- If StorageCosts > 0.42 x ThroughputCosts, table is a candidate for Standard IA table class and can benefit with switching the table class for a quick cost optimization win
-- If StorageCosts < 0.13 x ThroughputCosts, table is a candidate for Standard table class and can benefit with switching the table class for a quick cost optimization win.
-
-#### What are the calculations behind the table class recommendations?
-- Standard to Standard-IA:
-  - Given, when change to Standard-IA, you will pay 25% more on Throughput (Read/Write) cost and 60% less on Storage cost
-  - Potential saving = 0.6 *(actual_storage_cost) - 0.25 *(actual_throughput_cost)
-  - It is recommended to move from Standard to Standard-IA if:
-  - actual_storage_cost > (0.25/0.6) *(actual_throughput_cost)
-  - Then the break-even is: actual_storage_cost / actual_throughput_cost > ~42% (41.16%)
-
-- Standard-IA to Standard: 
-  - Given, when change to Standard, you will pay 20% less on Throughput (Read/Write) cost and 150% more on Storage cost
-  - Potential Saving = 0.2*(actual_throughput_cost_ia) - 1.5 *(_actual_storage_cost_ia )
-  - It is recommended to switch back from Standard-IA to Standard if:
-  - actual_storage_cost_ia < (0.2/1.5) *(actual_throughput_cost_ia)
-  - Then the break-even: actual_storage_cost_ia / actual_throughput_cost_ia < ~13% (13.33%)
-
-#### What is the effort on the AWS customer's side?
-For the manual approach, the effort from AWS customer's side is to flip the table class of their candidate DynamoDB tables from STANDARD to STANDARD_INFREQUENT_ACCESS using either the Console, SDKs or Infrastructure as Code Tools (CFN, Terraform etc).
-
-For the automated approach, the effort is minimal after initial setup - the system handles optimization automatically based on your configuration.
-
-#### How do I switch the table classes manually from the console?
-
-Here are the steps to manually switch a DynamoDB table from Standard from/to Standard-Infrequent Access (Standard-IA) class:
-1. Sign in to the AWS Management Console.
-2. Navigate to the DynamoDB service.
-3. In the navigation pane, choose "Tables".
-4. Select the table you want to modify.
-5. Choose the "Additional settings" tab.
-6. In the "Table class" section, choose "Edit".
-7. Based on the report results, select "DynamoDB Standard-Infrequent Access" or "Standard" as the new table class.
-8. Choose "Save changes".
-9. Review the changes and confirm by choosing "Change table class".
-10. Wait for the table status to change from "Updating" back to "Active". This process may take several minutes.
-11. Once complete, verify the new table class in the table details.
-
-##### Important notes
-  - Switching table classes can take several minutes to complete.
-  - You can't switch table classes more than twice in a 30-day period.
-  - Switching to Standard-IA is best for tables with infrequent access patterns.
-  - Monitor your costs after switching to ensure the change is beneficial for your use case.
-  - Remember that Standard-IA has higher costs for data access but lower storage costs.
-  - For bulk operations or automation, consider using the AWS CLI or SDKs with the UpdateTable API call, specifying the TableClass parameter. For example, in Python the Boto3 DynamoDB [update_table](https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/dynamodb/client/update_table.html) API can be used. 
-
-#### How long would it take for the changes to replicate?
-The time to update your table class depends on your table traffic, storage size, and other related variables. Actual switch of table classes could take up to a few minutes depending on the size of the table and above mentioned variables, however there is no performance degradation or impact to the table during or after this switch. In reality, the table class switch could be considered as simply a different billing plan for the tables.
-
-#### What is the performance impact on using Standard IA table class?
- No performance difference between Standard and Standard-IA (S-IA) table classes. Same consistent single digit millisecond average latencies at any scale. Same integrations with other AWS Services. Same costs for every other DynamoDB feature except for Throughput and Storage (Eg: same pricing for backups, PITR, streams etc irrespective of the storage class).
-
-#### Is it possible to switch back to Standard from Standard IA?
-Yes. No more than two table class updates on your table are allowed in a 30-day trailing period. 
-
 ## Troubleshooting
 
 ### Q1: Why am I not seeing any CUR data in my Athena queries?
@@ -491,7 +508,7 @@ A8: If recommendations seem off:
 
 For persistent issues or questions not covered here, please refer to the project documentation or reach out to AWS support.
 
-## Changelog
+### Changelog
 
 ### v2.0.0 (Automation Release - 2025-06-18)
 - **NEW: Automated Optimization System**
@@ -517,7 +534,7 @@ For persistent issues or questions not covered here, please refer to the project
   - Support for both CloudFormation Console and CLI deployment
   - Integration with existing manual query workflow
 
-### v1.0.0 (Initial Release - 2025-06-15)
+#### v1.0.0 (Initial Release - 2025-06-15)
 - **Initial Manual Query Tool**
   - Athena SQL query for DynamoDB table class cost analysis
   - Support for both SUMMARY and DETAILED report types
